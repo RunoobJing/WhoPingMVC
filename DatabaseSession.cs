@@ -101,7 +101,7 @@ namespace WhoPingMVC {
                         });
 
                         transaction.Commit();
-                    }catch (Exception ex) {
+                    } catch (Exception ex) {
                         transaction.Rollback();
                         System.Diagnostics.Debug.WriteLine(ex.StackTrace);
                     }
@@ -111,33 +111,94 @@ namespace WhoPingMVC {
 
         public static async Task<Models.Staff> GetStaff(string Id) {
             using (var connection = GetConnection()) {
-                return await connection.QueryFirstOrDefaultAsync<Models.Staff>("SELECT * FROM Staff WHERE Id=@Id", Id);
+                return await connection.QueryFirstOrDefaultAsync<Models.Staff>("SELECT * FROM StaffRole WHERE Id=@Id", new { Id });
             }
         }
 
         public static async Task<Models.Department> GetDepartment(string Name) {
             using (var connection = GetConnection()) {
-                return await connection.QueryFirstOrDefaultAsync<Models.Department>("SELECT * FROM Department WHERE Name=@Name", Name);
+                return await connection.QueryFirstOrDefaultAsync<Models.Department>("SELECT * FROM Department WHERE Name=@Name", new { Name });
+            }
+        }
+
+        public static async Task<List<Models.Department>> GetDepartments() {
+            using (var connection = GetConnection()) {
+                var departments = await connection.QueryAsync<Models.Department>("SELECT * FROM Department");
+                return departments.ToList();
             }
         }
 
         public static async Task<List<Models.ScoreList>> GetScoreList(string StaffId) {
             using (var connection = GetConnection()) {
-                var x = await connection.QueryAsync<Models.ScoreList>("SELECT * FROM ScoreList WHERE StaffId=@StaffId", StaffId);
+                var x = await connection.QueryAsync<Models.ScoreList>("SELECT * FROM ScoreList WHERE StaffId=@StaffId", new { StaffId });
                 return x.ToList();
             }
         }
 
         public static async Task<List<Models.Activity>> GetActivities(int[] Id) {
             using (var connection = GetConnection()) {
-                var x = await connection.QueryAsync<Models.Activity>("SELECT * FROM Activity WHERE Id IN @Id", Id);
+                var x = await connection.QueryAsync<Models.Activity>("SELECT * FROM Activity WHERE Id IN @Id", new { Id });
                 return x.ToList();
             }
         }
 
-        public static async Task<Models.Activity> GetActivity(int Id) {
+        public static async Task<Models.Activity> GetActivity(string Id) {
             using (var connection = GetConnection()) {
-                return await connection.QueryFirstOrDefaultAsync<Models.Activity>("SELECT * FROM Activity WHERE Id=@Id", Id);
+                return await connection.QueryFirstOrDefaultAsync<Models.Activity>("SELECT * FROM Activity WHERE Id=@Id", new { Id });
+            }
+        }
+
+        public static async Task<Models.PostActivityResponse> CommitActivity(Models.Activity activity) {
+            using (var connection = GetConnection()) {
+                var response = new Models.PostActivityResponse() { Success = false };
+                var act = await connection.QueryFirstOrDefaultAsync<Models.Activity>("SELECT * FROM Activity WHERE Id=@Id", new { activity.Id });
+                if (act == null) {
+                    response.Message = "无法找到此活动";
+                    return response;
+                }
+
+                if (act.Committed) {
+                    response.Message = "此活动已经提交过, 不能重复提交";
+                    return response;
+                }
+
+                var raw = await connection.ExecuteAsync("UPDATE ACTIVITY SET Profession=@Profession,Duty=@Duty,Cooperation=@Coperation,Result=@Result,CommittedDateTime=Now() WHERE Id=@Id", new { activity.Profession, activity.Duty, activity.Cooperation, activity.Result, activity.Id });
+
+                activity.Score = (int)Math.Round(activity.Profession * .2 + activity.Duty * .2 + activity.Cooperation * .3 + activity.Result * .3);
+
+                activity.ScoreText = "继续改进";
+                if (activity.Score >= 70) activity.ScoreText = "有待改进";
+                if (activity.Score >= 80) activity.ScoreText = "良好";
+                if (activity.Score >= 90) activity.ScoreText = "优秀";
+
+                await connection.ExecuteAsync("UPDATE ACTIVITY SET Score=@Score,ScoreText=@ScoreText,Commit=1 WHERE Id=@Id", new { activity.Score, activity.ScoreText, activity.Id });
+
+                response.Success = true;
+                response.Message = raw.ToString();
+                return response;
+            }
+        }
+
+        public static async Task<Models.BaseCommunicationReponse> SaveActivity(Models.Activity activity) {
+            using (var connection = GetConnection()) {
+                var response = new Models.BaseCommunicationReponse() { Success = false };
+
+                var act = await connection.QueryFirstOrDefaultAsync<Models.Activity>("SELECT * FROM Activity WHERE Id=@Id", new { activity.Id });
+                if (act == null) {
+                    response.Message = "无法找到此活动";
+                    return response;
+                }
+
+                if (act.Committed) {
+                    response.Message = "此活动已经提交过, 不能再保存";
+                    return response;
+                }
+
+                var raw = await connection.ExecuteAsync("UPDATE ACTIVITY SET Profession=@Profession,Duty=@Duty,Cooperation=@Coperation,Result=@Result WHERE Id=@Id", new { activity.Profession, activity.Duty, activity.Cooperation, activity.Result, activity.Id });
+
+                response.Success = true;
+                response.Message = raw.ToString();
+                return response;
             }
         }
     }
